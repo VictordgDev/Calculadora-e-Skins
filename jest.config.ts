@@ -11,7 +11,6 @@ const config: Config = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
   },
-  setupFilesAfterFramework: [],
 };
 
 export default createJestConfig(config);
