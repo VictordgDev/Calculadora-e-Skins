@@ -1,0 +1,134 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth.js required models ────────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Core application models ─────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // Access control
+  hasBasicAccess Boolean   @default(false)
+  planType       String?   // "monthly" | "yearly" | "lifetime" | null
+  planExpiresAt  DateTime? // null for lifetime
+
+  // Gamification
+  xp             Int @default(0) // XP atual no level corrente (reseta ao subir)
+  level          Int @default(0)
+  totalXpAllTime Int @default(0) // Nunca decrementa — usado no ranking
+
+  // Customization
+  equippedSkinId String @default("default")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  accounts  Account[]
+  sessions  Session[]
+  purchases Purchase[]
+  skins     UserSkin[]
+  xpEvents  XpEvent[]
+}
+
+model Purchase {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Pagar.me references
+  pagarmeOrderId        String? @unique
+  pagarmeSubscriptionId String? @unique
+
+  // What was purchased
+  type     String  // "basic_access" | "skin"
+  planType String? // "monthly" | "yearly" | "lifetime" (when type = basic_access)
+  itemId   String? // skinId (when type = skin)
+
+  // Payment details
+  status String @default("pending") // "pending" | "paid" | "canceled" | "refunded"
+  amount Int // value in cents (BRL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([pagarmeOrderId])
+  @@index([status])
+}
+
+model UserSkin {
+  id         String   @id @default(cuid())
+  userId     String
+  skinId     String
+  unlockedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skinId])
+  @@index([userId])
+}
+
+model XpEvent {
+  id     String @id @default(cuid())
+  userId String
+  amount Int
+  reason String // e.g. "calc_operation", "session_bonus", "daily_login", "level_up_bonus"
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt]) // Required for efficient weekly/monthly/yearly ranking queries
+}
