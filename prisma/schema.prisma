@@ -10,7 +10,38 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Auth.js required models ────────────────────────────────────────────────
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // Acesso
+  hasBasicAccess Boolean   @default(false)
+  planType       String?   // "monthly" | "yearly" | "lifetime"
+  planExpiresAt  DateTime? // null para lifetime
+
+  // Gamificação
+  xp             Int @default(0) // XP atual no level (reseta ao subir)
+  level          Int @default(0)
+  totalXpAllTime Int @default(0) // nunca decrementa — usado no ranking
+
+  // Customização
+  equippedSkinId String @default("default")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relações Auth.js
+  accounts Account[]
+  sessions Session[]
+
+  // Relações app
+  purchases Purchase[]
+  skins     UserSkin[]
+  xpEvents  XpEvent[]
+}
 
 model Account {
   id                String  @id @default(cuid())
@@ -47,63 +78,28 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// ─── Core application models ─────────────────────────────────────────────────
-
-model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-
-  // Access control
-  hasBasicAccess Boolean   @default(false)
-  planType       String?   // "monthly" | "yearly" | "lifetime" | null
-  planExpiresAt  DateTime? // null for lifetime
-
-  // Gamification
-  xp             Int @default(0) // XP atual no level corrente (reseta ao subir)
-  level          Int @default(0)
-  totalXpAllTime Int @default(0) // Nunca decrementa — usado no ranking
-
-  // Customization
-  equippedSkinId String @default("default")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  accounts  Account[]
-  sessions  Session[]
-  purchases Purchase[]
-  skins     UserSkin[]
-  xpEvents  XpEvent[]
-}
-
 model Purchase {
-  id String @id @default(cuid())
+  id                  String  @id @default(cuid())
+  userId              String
+  infinitepayOrderNsu String? @unique // orderNsu enviado na criação
+  infinitepaySlug     String? // invoice_slug do webhook
+  infinitepayTxNsu    String? // transaction_nsu do webhook
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type     String // "basic_access" | "skin"
+  planType String? // "monthly" | "yearly" | "lifetime"
+  itemId   String? // skinId quando type = "skin"
 
-  // Pagar.me references
-  pagarmeOrderId        String? @unique
-  pagarmeSubscriptionId String? @unique
-
-  // What was purchased
-  type     String  // "basic_access" | "skin"
-  planType String? // "monthly" | "yearly" | "lifetime" (when type = basic_access)
-  itemId   String? // skinId (when type = skin)
-
-  // Payment details
-  status String @default("pending") // "pending" | "paid" | "canceled" | "refunded"
-  amount Int // value in cents (BRL)
+  status     String   @default("pending") // "pending" | "paid" | "canceled"
+  amount     Int // em centavos
+  paidAmount Int? // valor confirmado pelo webhook
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([pagarmeOrderId])
+  @@index([infinitepayOrderNsu])
   @@index([status])
 }
 
@@ -123,12 +119,12 @@ model XpEvent {
   id     String @id @default(cuid())
   userId String
   amount Int
-  reason String // e.g. "calc_operation", "session_bonus", "daily_login", "level_up_bonus"
+  reason String // "calc_operation" | "session_bonus" | "daily_login" | "welcome_bonus"
 
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([createdAt]) // Required for efficient weekly/monthly/yearly ranking queries
+  @@index([createdAt])
 }
